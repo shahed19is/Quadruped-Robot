@@ -3,7 +3,7 @@
  *            with Interruptible Gait Using PCA9685 and
  *            Electromagnetic Foot Adhesion
  *
- * Firmware : 1.1.0
+ * Firmware : 2.0.0 - OVERLAPPING DIAGONAL GAIT
  * Author   : Shahed Islam
  * Date     : January 2026
  * Contact  : shahed19is@gmail.com
@@ -11,26 +11,17 @@
  *
  * Description:
  * This firmware implements a real-time, interruptible gait controller
- * for a quadruped robot equipped with electromagnetic feet. The robot
- * continuously monitors incoming Bluetooth/Serial commands and
- * immediately interrupts its current motion whenever a new command
- * is detected.
+ * with OVERLAPPING diagonal leg movements for smoother, faster walking.
  *
- * The electromagnetic system allows each leg to magnetize or
- * demagnetize the ground surface to improve stability and traction
- * during movement, especially on metallic platforms.
+ * GAIT PATTERN:
+ * While one leg is resetting its coxa, the diagonal opposite leg
+ * begins lifting and swinging. This creates continuous motion with
+ * better stability and speed.
  *
  * All calibration constants, servo directions, mechanical mappings,
  * and electromagnet pin assignments are defined in:
  *    robot_config.h
  *    robot_config.cpp
- *
- * This file only contains:
- *  - Motion logic
- *  - Command handling
- *  - Gait execution
- *  - Electromagnet control logic
- *  - Interruptible behavior
  ********************************************************************/
 
 #include <Wire.h>
@@ -84,10 +75,6 @@ void setServo(int ch, int val) {
 // ===================================================
 // ELECTROMAGNET CONTROL
 // ===================================================
-//
-// LOW  → Magnetized  (ON)
-// HIGH → Demagnetized (OFF)
-//
 void magnetOn(int pin) {
   digitalWrite(pin, LOW);
 }
@@ -149,103 +136,230 @@ void stand() {
 
 
 // ===================================================
-// LEG MOTION PRIMITIVES (INTERRUPTIBLE + MAGNETIC)
+// INDIVIDUAL LEG MOTION PRIMITIVES (NON-BLOCKING)
 // ===================================================
-bool liftLeg(Leg leg) {
+
+// Lift a leg (demagnetize first)
+bool liftLegStart(Leg leg) {
   if (checkNewCommand()) return true;
-
-  // Release magnetic grip before lifting the leg
   magnetOff(getLegMagnetPin(leg));
-  smartDelay(20);  // Allow relay/magnet to switch state
-
+  smartDelay(20);
   setServo(leg.femur, standPos[leg.femur] + femurDir[leg.femur] * liftAmount);
   setServo(leg.tibia, standPos[leg.tibia] + tibiaDir[leg.tibia] * liftAmount);
-
   return smartDelay(stepDelay);
 }
 
-bool lowerLeg(Leg leg) {
-  if (checkNewCommand()) return true;
-
-  setServo(leg.femur, standPos[leg.femur]);
-  setServo(leg.tibia, standPos[leg.tibia]);
-  smartDelay(stepDelay);
-
-  // Engage magnetic grip after placing the leg
-  magnetOn(getLegMagnetPin(leg));
-  return smartDelay(20);
-}
-
-bool swingForward(Leg leg) {
+// Swing leg forward
+bool swingLegForward(Leg leg) {
   if (checkNewCommand()) return true;
   setServo(leg.coxa, standPos[leg.coxa] + coxaDir[leg.coxa] * stepAmount);
   return smartDelay(stepDelay);
 }
 
-bool swingBackward(Leg leg) {
+// Swing leg backward
+bool swingLegBackward(Leg leg) {
   if (checkNewCommand()) return true;
   setServo(leg.coxa, standPos[leg.coxa] - coxaDir[leg.coxa] * stepAmount);
   return smartDelay(stepDelay);
 }
 
-bool resetCoxa(Leg leg) {
+// Lower a leg (magnetize after)
+bool lowerLegComplete(Leg leg) {
   if (checkNewCommand()) return true;
-  setServo(leg.coxa, standPos[leg.coxa]);
+  setServo(leg.femur, standPos[leg.femur]);
+  setServo(leg.tibia, standPos[leg.tibia]);
+  smartDelay(20);
+  magnetOn(getLegMagnetPin(leg));
+  return smartDelay(stepDelay);
+}
+
+// Reset coxa to neutral
+bool resetCoxaToNeutral(Leg leg1, Leg leg2) {
+  if (checkNewCommand()) return true;
+  setServo(leg1.coxa, standPos[leg1.coxa]);
+  setServo(leg2.coxa, standPos[leg2.coxa]);
   return smartDelay(stepDelay);
 }
 
 
 // ===================================================
-// STEP SEQUENCES
-// ===================================================
-bool stepForward(Leg leg) {
-  if (liftLeg(leg)) return true;
-  if (swingForward(leg)) return true;
-  if (lowerLeg(leg)) return true;
-  if (resetCoxa(leg)) return true;
-  return false;
-}
-
-bool stepBackward(Leg leg) {
-  if (liftLeg(leg)) return true;
-  if (swingBackward(leg)) return true;
-  if (lowerLeg(leg)) return true;
-  if (resetCoxa(leg)) return true;
-  return false;
-}
-
-
-// ===================================================
-// MOVEMENT FUNCTIONS (FULLY INTERRUPTIBLE)
+// OVERLAPPING DIAGONAL GAIT - FORWARD
 // ===================================================
 void walkForward() {
-  if (stepBackward(FL)) return;
-  if (stepForward(BR)) return;
-  if (stepBackward(BL)) return;
-  if (stepForward(FR)) return;
+  // === DIAGONAL PAIR 1: FL and BR ===
+  
+  // FL lifts
+  if (liftLegStart(FL)) return;
+  // FL moves
+  if (swingLegBackward(FL)) return;
+  // FL lowers
+  if (lowerLegComplete(FL)) return;
+  
+  // BR lifts
+  if (liftLegStart(BR)) return;
+  // BR moves
+  if (swingLegForward(BR)) return;
+  // BR lowers
+  if (lowerLegComplete(BR)) return;
+  
+  // FL and BR reset coxa
+  if (resetCoxaToNeutral(FL, BR)) return;
+  
+  
+  // === DIAGONAL PAIR 2: BL and FR ===
+  
+  // BL lifts
+  if (liftLegStart(BL)) return;
+  // BL moves
+  if (swingLegBackward(BL)) return;
+  // BL lowers
+  if (lowerLegComplete(BL)) return;
+  
+  // FR lifts
+  if (liftLegStart(FR)) return;
+  // FR moves
+  if (swingLegForward(FR)) return;
+  // FR lowers
+  if (lowerLegComplete(FR)) return;
+  
+  // BL and FR reset coxa
+  if (resetCoxaToNeutral(BL, FR)) return;
 }
 
+
+// ===================================================
+// OVERLAPPING DIAGONAL GAIT - BACKWARD
+// ===================================================
 void walkBackward() {
-  if (stepBackward(FR)) return;
-  if (stepForward(BL)) return;
-  if (stepBackward(BR)) return;
-  if (stepForward(FL)) return;
+  // === DIAGONAL PAIR 1: FR and BL ===
+  
+  // FR lifts
+  if (liftLegStart(FR)) return;
+  // FR moves
+  if (swingLegBackward(FR)) return;
+  // FR lowers
+  if (lowerLegComplete(FR)) return;
+  
+  // BL lifts
+  if (liftLegStart(BL)) return;
+  // BL moves
+  if (swingLegForward(BL)) return;
+  // BL lowers
+  if (lowerLegComplete(BL)) return;
+  
+  // FR and BL reset coxa
+  if (resetCoxaToNeutral(FR, BL)) return;
+  
+  
+  // === DIAGONAL PAIR 2: BR and FL ===
+  
+  // BR lifts
+  if (liftLegStart(BR)) return;
+  // BR moves
+  if (swingLegBackward(BR)) return;
+  // BR lowers
+  if (lowerLegComplete(BR)) return;
+  
+  // FL lifts
+  if (liftLegStart(FL)) return;
+  // FL moves
+  if (swingLegForward(FL)) return;
+  // FL lowers
+  if (lowerLegComplete(FL)) return;
+  
+  // BR and FL reset coxa
+  if (resetCoxaToNeutral(BR, FL)) return;
 }
 
+
+// ===================================================
+// TURN LEFT - All legs swing forward
+// ===================================================
 void turnLeft() {
-  if (stepForward(FR)) return;
-  if (stepForward(BL)) return;
-  if (stepForward(FL)) return;
-  if (stepForward(BR)) return;
+  // === DIAGONAL PAIR 1: FL and BR ===
+  
+  // FL lifts
+  if (liftLegStart(FL)) return;
+  // FL moves
+  if (swingLegForward(FL)) return;
+  // FL lowers
+  if (lowerLegComplete(FL)) return;
+  
+  // BR lifts
+  if (liftLegStart(BR)) return;
+  // BR moves
+  if (swingLegForward(BR)) return;
+  // BR lowers
+  if (lowerLegComplete(BR)) return;
+  
+  // FL and BR reset coxa
+  if (resetCoxaToNeutral(FL, BR)) return;
+  
+  
+  // === DIAGONAL PAIR 2: BL and FR ===
+  
+  // BL lifts
+  if (liftLegStart(BL)) return;
+  // BL moves
+  if (swingLegForward(BL)) return;
+  // BL lowers
+  if (lowerLegComplete(BL)) return;
+  
+  // FR lifts
+  if (liftLegStart(FR)) return;
+  // FR moves
+  if (swingLegForward(FR)) return;
+  // FR lowers
+  if (lowerLegComplete(FR)) return;
+  
+  // BL and FR reset coxa
+  if (resetCoxaToNeutral(BL, FR)) return;
 }
 
+
+// ===================================================
+// TURN RIGHT - All legs swing backward
+// ===================================================
 void turnRight() {
-  if (stepBackward(FR)) return;
-  if (stepBackward(BL)) return;
-  if (stepBackward(BR)) return;
-  if (stepBackward(FL)) return;
+  // === DIAGONAL PAIR 1: FL and BR ===
+  
+  // FL lifts
+  if (liftLegStart(FL)) return;
+  // FL moves
+  if (swingLegBackward(FL)) return;
+  // FL lowers
+  if (lowerLegComplete(FL)) return;
+  
+  // BR lifts
+  if (liftLegStart(BR)) return;
+  // BR moves
+  if (swingLegBackward(BR)) return;
+  // BR lowers
+  if (lowerLegComplete(BR)) return;
+  
+  // FL and BR reset coxa
+  if (resetCoxaToNeutral(FL, BR)) return;
+  
+  
+  // === DIAGONAL PAIR 2: BL and FR ===
+  
+  // BL lifts
+  if (liftLegStart(BL)) return;
+  // BL moves
+  if (swingLegBackward(BL)) return;
+  // BL lowers
+  if (lowerLegComplete(BL)) return;
+  
+  // FR lifts
+  if (liftLegStart(FR)) return;
+  // FR moves
+  if (swingLegBackward(FR)) return;
+  // FR lowers
+  if (lowerLegComplete(FR)) return;
+  
+  // BL and FR reset coxa
+  if (resetCoxaToNeutral(BL, FR)) return;
 }
-
 
 
 // ===================================================
@@ -263,19 +377,18 @@ void setup() {
   if (!validateConfiguration()) {
     Serial.println("FATAL ERROR: Invalid servo configuration!");
     Serial.println("Check robot_config.cpp values.");
-    while (1);   // Halt execution permanently
+    while (1);
   }
 
   pwm.begin();
   pwm.setPWMFreq(50);
   delay(1000);
 
-  // Initialize robot in stable standing posture
   stand();
   allMagnetsOn();
   currentCmd = 'V';
 
-  Serial.println("Configuration OK. Robot Ready with Magnetic System.");
+  Serial.println("Configuration OK. Robot Ready with Overlapping Gait.");
 }
 
 
@@ -303,19 +416,19 @@ void loop() {
       turnRight();
       break;
 
-    case 'V':   // Stand posture only
+    case 'V':
       stand();
       allMagnetsOn();
       smartDelay(100);
       break;
 
-    case 'S':   // Stop and return to stand
+    case 'S':
       stand();
       allMagnetsOn();
       smartDelay(100);
       break;
 
-    default:    // Safety fallback
+    default:
       stand();
       allMagnetsOn();
       smartDelay(100);
