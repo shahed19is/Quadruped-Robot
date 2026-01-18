@@ -2,6 +2,8 @@
  * File     : robot_config.cpp
  * Project  : Real-Time Bluetooth Controlled Quadruped Robot
  *            with Interruptible Gait Using PCA9685
+ *
+ * Firmware : 1.1.0
  * Author   : Shahed Islam
  * Date     : January 2026
  * Contact  : shahed19is@gmail.com
@@ -9,26 +11,29 @@
  *
  * Description:
  * This file contains all hardware calibration parameters and
- * mechanical configuration data for the quadruped robot.
- * 
+ * mechanical configuration data for the quadruped robot with
+ * electromagnetic feet support.
+ *
  * WARNING:
- * Incorrect values in this file may damage servos or mechanical
- * parts. Always keep all active PWM values within:
- * 
+ * Incorrect values in this file may damage servos, electromagnets,
+ * or mechanical structures. Always keep all active PWM values
+ * within:
+ *
  *        SERVO_MIN (200)  ≤  PWM  ≤  SERVO_MAX (550)
- * 
+ *
  * A value of 0 means the PCA9685 channel is unused.
  * Any invalid value will cause the firmware to halt at startup.
  ************************************************************/
 
 #include "robot_config.h"
 
+
 /* ================= STAND POSITIONS =================
  * Default standing posture for all servos.
  *
  * Index  : PCA9685 channel number (0–15)
  * Value  : PWM pulse width
- * 
+ *
  * Rules:
  *   - SERVO_MIN ≤ Value ≤ SERVO_MAX
  *   - Value = 0  → Channel unused
@@ -67,18 +72,18 @@ Leg BR = {10, 9, 8};    // Back Right Leg
  */
 
 // Femur → Vertical lifting joint (middle joint)
-int femurDir[16] = { 
-  0, -1, 0, 0, 0, +1, 0, 0, 0, +1, 0, 0, 0, -1, 0, 0 
+int femurDir[16] = {
+  0, -1, 0, 0, 0, +1, 0, 0, 0, +1, 0, 0, 0, -1, 0, 0
 };
 
 // Tibia → Foot joint (lower joint)
-int tibiaDir[16] = { 
-  +1, 0, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, 0, +1, 0 
+int tibiaDir[16] = {
+  +1, 0, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, 0, +1, 0
 };
 
 // Coxa → Arm joint (horizontal rotation)
-int coxaDir[16] = { 
-  0, 0, +1, 0, +1, 0, 0, 0, 0, 0, +1, 0, +1, 0, 0, 0 
+int coxaDir[16] = {
+  0, 0, +1, 0, +1, 0, 0, 0, 0, 0, +1, 0, +1, 0, 0, 0
 };
 
 
