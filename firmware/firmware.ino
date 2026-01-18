@@ -1,8 +1,9 @@
 /********************************************************************
  * Project  : Real-Time Bluetooth Controlled Quadruped Robot
- *            with Interruptible Gait Using PCA9685
+ *            with Interruptible Gait Using PCA9685 and
+ *            Electromagnetic Foot Adhesion
  *
- * Firmware : 1.0.0
+ * Firmware : 1.1.0
  * Author   : Shahed Islam
  * Date     : January 2026
  * Contact  : shahed19is@gmail.com
@@ -10,12 +11,17 @@
  *
  * Description:
  * This firmware implements a real-time, interruptible gait controller
- * for a quadruped robot. The robot continuously monitors incoming
- * Bluetooth/Serial commands and immediately interrupts its current
- * motion whenever a new command is detected.
+ * for a quadruped robot equipped with electromagnetic feet. The robot
+ * continuously monitors incoming Bluetooth/Serial commands and
+ * immediately interrupts its current motion whenever a new command
+ * is detected.
  *
- * All calibration constants, servo directions, and mechanical mappings
- * are defined in:
+ * The electromagnetic system allows each leg to magnetize or
+ * demagnetize the ground surface to improve stability and traction
+ * during movement, especially on metallic platforms.
+ *
+ * All calibration constants, servo directions, mechanical mappings,
+ * and electromagnet pin assignments are defined in:
  *    robot_config.h
  *    robot_config.cpp
  *
@@ -23,6 +29,7 @@
  *  - Motion logic
  *  - Command handling
  *  - Gait execution
+ *  - Electromagnet control logic
  *  - Interruptible behavior
  ********************************************************************/
 
@@ -35,6 +42,7 @@ Adafruit_PWMServoDriver pwm(0x40);
 // ================= GLOBAL STATE =================
 char currentCmd = 'V';      // Active command
 unsigned long lastCmdTime = 0;
+
 
 // ===================================================
 // READ LATEST COMMAND (BUFFER CLEAN + CHANGE DETECTION)
@@ -63,6 +71,7 @@ bool checkNewCommand() {
   return false;
 }
 
+
 // ===================================================
 // LOW LEVEL SERVO CONTROL
 // ===================================================
@@ -70,6 +79,49 @@ void setServo(int ch, int val) {
   val = constrain(val, SERVO_MIN, SERVO_MAX);
   pwm.setPWM(ch, 0, val);
 }
+
+
+// ===================================================
+// ELECTROMAGNET CONTROL
+// ===================================================
+//
+// LOW  → Magnetized  (ON)
+// HIGH → Demagnetized (OFF)
+//
+void magnetOn(int pin) {
+  digitalWrite(pin, LOW);
+}
+
+void magnetOff(int pin) {
+  digitalWrite(pin, HIGH);
+}
+
+void allMagnetsOn() {
+  magnetOn(MAGNET_FL);
+  magnetOn(MAGNET_FR);
+  magnetOn(MAGNET_BL);
+  magnetOn(MAGNET_BR);
+}
+
+void allMagnetsOff() {
+  magnetOff(MAGNET_FL);
+  magnetOff(MAGNET_FR);
+  magnetOff(MAGNET_BL);
+  magnetOff(MAGNET_BR);
+}
+
+
+// ===================================================
+// MAP LEG TO ITS CORRESPONDING ELECTROMAGNET
+// ===================================================
+int getLegMagnetPin(Leg leg) {
+  if (leg.coxa == FL.coxa) return MAGNET_FL;
+  if (leg.coxa == FR.coxa) return MAGNET_FR;
+  if (leg.coxa == BL.coxa) return MAGNET_BL;
+  if (leg.coxa == BR.coxa) return MAGNET_BR;
+  return -1;
+}
+
 
 // ===================================================
 // SMART DELAY
@@ -84,6 +136,7 @@ bool smartDelay(int ms) {
   return false;
 }
 
+
 // ===================================================
 // STAND POSTURE
 // ===================================================
@@ -94,21 +147,33 @@ void stand() {
   }
 }
 
+
 // ===================================================
-// LEG MOTION PRIMITIVES (INTERRUPTIBLE)
+// LEG MOTION PRIMITIVES (INTERRUPTIBLE + MAGNETIC)
 // ===================================================
 bool liftLeg(Leg leg) {
   if (checkNewCommand()) return true;
+
+  // Release magnetic grip before lifting the leg
+  magnetOff(getLegMagnetPin(leg));
+  smartDelay(20);  // Allow relay/magnet to switch state
+
   setServo(leg.femur, standPos[leg.femur] + femurDir[leg.femur] * liftAmount);
   setServo(leg.tibia, standPos[leg.tibia] + tibiaDir[leg.tibia] * liftAmount);
+
   return smartDelay(stepDelay);
 }
 
 bool lowerLeg(Leg leg) {
   if (checkNewCommand()) return true;
+
   setServo(leg.femur, standPos[leg.femur]);
   setServo(leg.tibia, standPos[leg.tibia]);
-  return smartDelay(stepDelay);
+  smartDelay(stepDelay);
+
+  // Engage magnetic grip after placing the leg
+  magnetOn(getLegMagnetPin(leg));
+  return smartDelay(20);
 }
 
 bool swingForward(Leg leg) {
@@ -129,6 +194,7 @@ bool resetCoxa(Leg leg) {
   return smartDelay(stepDelay);
 }
 
+
 // ===================================================
 // STEP SEQUENCES
 // ===================================================
@@ -148,21 +214,22 @@ bool stepBackward(Leg leg) {
   return false;
 }
 
+
 // ===================================================
 // MOVEMENT FUNCTIONS (FULLY INTERRUPTIBLE)
 // ===================================================
 void walkForward() {
   if (stepBackward(FL)) return;
+  if (stepForward(BR)) return;
   if (stepBackward(BL)) return;
   if (stepForward(FR)) return;
-  if (stepForward(BR)) return;
 }
 
 void walkBackward() {
   if (stepBackward(FR)) return;
+  if (stepForward(BL)) return;
   if (stepBackward(BR)) return;
   if (stepForward(FL)) return;
-  if (stepForward(BL)) return;
 }
 
 void turnLeft() {
@@ -174,10 +241,12 @@ void turnLeft() {
 
 void turnRight() {
   if (stepBackward(FR)) return;
+  if (stepBackward(BL)) return;
   if (stepBackward(BR)) return;
   if (stepBackward(FL)) return;
-  if (stepBackward(BL)) return;
 }
+
+
 
 // ===================================================
 // SETUP
@@ -185,20 +254,28 @@ void turnRight() {
 void setup() {
   Serial.begin(9600);
 
+  // Initialize electromagnet control pins
+  pinMode(MAGNET_FL, OUTPUT);
+  pinMode(MAGNET_FR, OUTPUT);
+  pinMode(MAGNET_BL, OUTPUT);
+  pinMode(MAGNET_BR, OUTPUT);
+
   if (!validateConfiguration()) {
     Serial.println("FATAL ERROR: Invalid servo configuration!");
     Serial.println("Check robot_config.cpp values.");
-    while (1);   // Stop execution forever
+    while (1);   // Halt execution permanently
   }
 
   pwm.begin();
   pwm.setPWMFreq(50);
   delay(1000);
 
+  // Initialize robot in stable standing posture
   stand();
+  allMagnetsOn();
   currentCmd = 'V';
 
-  Serial.println("Configuration OK. Robot Ready.");
+  Serial.println("Configuration OK. Robot Ready with Magnetic System.");
 }
 
 
@@ -209,6 +286,7 @@ void loop() {
   checkNewCommand();
 
   switch (currentCmd) {
+
     case 'F':
       walkForward();
       break;
@@ -227,16 +305,19 @@ void loop() {
 
     case 'V':   // Stand posture only
       stand();
+      allMagnetsOn();
       smartDelay(100);
       break;
 
     case 'S':   // Stop and return to stand
       stand();
+      allMagnetsOn();
       smartDelay(100);
       break;
 
     default:    // Safety fallback
       stand();
+      allMagnetsOn();
       smartDelay(100);
       break;
   }
