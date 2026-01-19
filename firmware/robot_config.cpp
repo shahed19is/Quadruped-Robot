@@ -39,10 +39,10 @@
  *   - Value = 0  → Channel unused
  */
 int standPos[16] = {
-  475, 500, 450, 0,
-  350, 275, 325, 0,
-  275, 325, 350, 0,
-  450, 500, 475, 0
+  350, 350, 300, 0,
+  450, 350, 400, 0,
+  375, 430, 250, 0,
+  550, 350, 350, 0
 };
 
 
@@ -96,8 +96,9 @@ int coxaDir[16] = {
  * Tune carefully to avoid mechanical stress.
  */
 int liftAmount = 150;
-int stepAmount = 100;
-int stepDelay  = 120;
+int stepAmount = 150;
+int stepDelay  = 1000;
+int magDelay = 250;
 
 
 /********************************************************************
