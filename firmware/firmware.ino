@@ -3,7 +3,7 @@
  *            with Interruptible Gait Using PCA9685 and
  *            Electromagnetic Foot Adhesion
  *
- * Firmware : 2.0.0 - OVERLAPPING DIAGONAL GAIT
+ * Firmware : 2.0.0 - OVERLAPPING WEIGHT TRANSFER GAIT
  * Author   : Shahed Islam
  * Date     : January 2026
  * Contact  : shahed19is@gmail.com
@@ -11,12 +11,13 @@
  *
  * Description:
  * This firmware implements a real-time, interruptible gait controller
- * with OVERLAPPING diagonal leg movements for smoother, faster walking.
+ * with OVERLAPPING weight transfer between diagonal pairs.
  *
- * GAIT PATTERN:
- * While one leg is resetting its coxa, the diagonal opposite leg
- * begins lifting and swinging. This creates continuous motion with
- * better stability and speed.
+ * GAIT PATTERN WITH WEIGHT TRANSFER:
+ * While one diagonal pair resets its coxa, the next pair prepares
+ * to move by releasing magnets. The current pair slightly lowers
+ * to transfer weight, then returns to normal height. This creates
+ * smooth, continuous motion with better stability.
  *
  * All calibration constants, servo directions, mechanical mappings,
  * and electromagnet pin assignments are defined in:
@@ -31,7 +32,7 @@
 Adafruit_PWMServoDriver pwm(0x40);
 
 // ================= GLOBAL STATE =================
-char currentCmd = 'V';      // Active command
+char currentCmd = 'V';
 unsigned long lastCmdTime = 0;
 
 
@@ -74,6 +75,8 @@ void setServo(int ch, int val) {
 
 // ===================================================
 // ELECTROMAGNET CONTROL
+// LOW  = Magnetized (ON)
+// HIGH = Demagnetized (OFF)
 // ===================================================
 void magnetOn(int pin) {
   digitalWrite(pin, LOW);
@@ -111,7 +114,7 @@ int getLegMagnetPin(Leg leg) {
 
 
 // ===================================================
-// SMART DELAY
+// SMART DELAY WITH COMMAND CHECK
 // Allows immediate interruption by new command
 // ===================================================
 bool smartDelay(int ms) {
@@ -132,143 +135,163 @@ void stand() {
     if (standPos[i] != 0)
       setServo(i, standPos[i]);
   }
+  smartDelay(50);
 }
 
 
 // ===================================================
-// INDIVIDUAL LEG MOTION PRIMITIVES (NON-BLOCKING)
+// INDIVIDUAL LEG MOTION PRIMITIVES
 // ===================================================
 
 // Lift a leg (demagnetize first)
-bool liftLegStart(Leg leg) {
+bool liftLeg(Leg leg) {
   if (checkNewCommand()) return true;
+  
   magnetOff(getLegMagnetPin(leg));
-  smartDelay(20);
+  delay(magDelay);
+  
   setServo(leg.femur, standPos[leg.femur] + femurDir[leg.femur] * liftAmount);
   setServo(leg.tibia, standPos[leg.tibia] + tibiaDir[leg.tibia] * liftAmount);
-  return smartDelay(stepDelay);
+  smartDelay(stepDelay);
+  
+  return false;
 }
 
 // Swing leg forward
-bool swingLegForward(Leg leg) {
+bool swingForward(Leg leg) {
   if (checkNewCommand()) return true;
+  
   setServo(leg.coxa, standPos[leg.coxa] + coxaDir[leg.coxa] * stepAmount);
-  return smartDelay(stepDelay);
+  smartDelay(stepDelay);
+  
+  return false;
 }
 
 // Swing leg backward
-bool swingLegBackward(Leg leg) {
+bool swingBackward(Leg leg) {
   if (checkNewCommand()) return true;
+  
   setServo(leg.coxa, standPos[leg.coxa] - coxaDir[leg.coxa] * stepAmount);
-  return smartDelay(stepDelay);
+  smartDelay(stepDelay);
+  
+  return false;
 }
 
 // Lower a leg (magnetize after)
-bool lowerLegComplete(Leg leg) {
+bool lowerLeg(Leg leg) {
   if (checkNewCommand()) return true;
+  
   setServo(leg.femur, standPos[leg.femur]);
   setServo(leg.tibia, standPos[leg.tibia]);
-  smartDelay(20);
+  smartDelay(stepDelay);
+  
   magnetOn(getLegMagnetPin(leg));
-  return smartDelay(stepDelay);
+  delay(magDelay);
+  
+  return false;
 }
 
 // Reset coxa to neutral
-bool resetCoxaToNeutral(Leg leg1, Leg leg2) {
+bool resetCoxa(Leg movLeg1, Leg movLeg2, Leg relLeg1, Leg relLeg2) {
   if (checkNewCommand()) return true;
-  setServo(leg1.coxa, standPos[leg1.coxa]);
-  setServo(leg2.coxa, standPos[leg2.coxa]);
-  return smartDelay(stepDelay);
+  
+  smartDelay(magDelay);
+  // Release next pair's magnets
+  magnetOff(getLegMagnetPin(relLeg1));
+  magnetOff(getLegMagnetPin(relLeg2));
+  delay(magDelay);
+  
+  // Lower current pair slightly to transfer weight
+  setServo(movLeg1.femur, standPos[movLeg1.femur] - femurDir[movLeg1.femur] * liftAmount * 2);
+  setServo(movLeg2.femur, standPos[movLeg2.femur] - femurDir[movLeg2.femur] * liftAmount * 2);
+  
+  // Reset current pair's coxa
+  setServo(movLeg1.coxa, standPos[movLeg1.coxa]);
+  setServo(movLeg2.coxa, standPos[movLeg2.coxa]);
+  
+  // Raise current pair back to normal height
+  setServo(movLeg1.femur, standPos[movLeg1.femur]);
+  setServo(movLeg2.femur, standPos[movLeg2.femur]);
+  delay(magDelay);
+  
+  // Re-engage next pair's magnets
+  magnetOn(getLegMagnetPin(relLeg1));
+  magnetOn(getLegMagnetPin(relLeg2));
+  smartDelay(magDelay);
+  
+  return false;
 }
 
 
 // ===================================================
-// OVERLAPPING DIAGONAL GAIT - FORWARD
+// OVERLAPPING WEIGHT TRANSFER GAIT - FORWARD
 // ===================================================
 void walkForward() {
   // === DIAGONAL PAIR 1: FL and BR ===
   
-  // FL lifts
-  if (liftLegStart(FL)) return;
-  // FL moves
-  if (swingLegBackward(FL)) return;
-  // FL lowers
-  if (lowerLegComplete(FL)) return;
+  // FL: lift → swing backward → lower
+  if (liftLeg(FL)) return;
+  if (swingBackward(FL)) return;
+  if (lowerLeg(FL)) return;
   
-  // BR lifts
-  if (liftLegStart(BR)) return;
-  // BR moves
-  if (swingLegForward(BR)) return;
-  // BR lowers
-  if (lowerLegComplete(BR)) return;
+  // BR: lift → swing forward → lower
+  if (liftLeg(BR)) return;
+  if (swingForward(BR)) return;
+  if (lowerLeg(BR)) return;
   
-  // FL and BR reset coxa
-  if (resetCoxaToNeutral(FL, BR)) return;
-  
+  // === WEIGHT TRANSFER & RESET FL-BR ===
+  if (resetCoxa(FL, BR, BL, FR)) return;
   
   // === DIAGONAL PAIR 2: BL and FR ===
   
-  // BL lifts
-  if (liftLegStart(BL)) return;
-  // BL moves
-  if (swingLegBackward(BL)) return;
-  // BL lowers
-  if (lowerLegComplete(BL)) return;
+  // BL: lift → swing backward → lower
+  if (liftLeg(BL)) return;
+  if (swingBackward(BL)) return;
+  if (lowerLeg(BL)) return;
   
-  // FR lifts
-  if (liftLegStart(FR)) return;
-  // FR moves
-  if (swingLegForward(FR)) return;
-  // FR lowers
-  if (lowerLegComplete(FR)) return;
+  // FR: lift → swing forward → lower
+  if (liftLeg(FR)) return;
+  if (swingForward(FR)) return;
+  if (lowerLeg(FR)) return;
   
-  // BL and FR reset coxa
-  if (resetCoxaToNeutral(BL, FR)) return;
+  // === WEIGHT TRANSFER & RESET BL-FR ===
+  if (resetCoxa(FR, BL, BR, FL)) return;
 }
 
 
 // ===================================================
-// OVERLAPPING DIAGONAL GAIT - BACKWARD
+// OVERLAPPING WEIGHT TRANSFER GAIT - BACKWARD
 // ===================================================
 void walkBackward() {
   // === DIAGONAL PAIR 1: FR and BL ===
   
-  // FR lifts
-  if (liftLegStart(FR)) return;
-  // FR moves
-  if (swingLegBackward(FR)) return;
-  // FR lowers
-  if (lowerLegComplete(FR)) return;
+  // FR: lift → swing backward → lower
+  if (liftLeg(FR)) return;
+  if (swingBackward(FR)) return;
+  if (lowerLeg(FR)) return;
   
-  // BL lifts
-  if (liftLegStart(BL)) return;
-  // BL moves
-  if (swingLegForward(BL)) return;
-  // BL lowers
-  if (lowerLegComplete(BL)) return;
+  // BL: lift → swing forward → lower
+  if (liftLeg(BL)) return;
+  if (swingForward(BL)) return;
+  if (lowerLeg(BL)) return;
   
-  // FR and BL reset coxa
-  if (resetCoxaToNeutral(FR, BL)) return;
-  
+  // === WEIGHT TRANSFER & RESET FR-BL ===
+  if (resetCoxa(FR, BL, BR, FL)) return;
   
   // === DIAGONAL PAIR 2: BR and FL ===
   
-  // BR lifts
-  if (liftLegStart(BR)) return;
-  // BR moves
-  if (swingLegBackward(BR)) return;
-  // BR lowers
-  if (lowerLegComplete(BR)) return;
+  // BR: lift → swing backward → lower
+  if (liftLeg(BR)) return;
+  if (swingBackward(BR)) return;
+  if (lowerLeg(BR)) return;
   
-  // FL lifts
-  if (liftLegStart(FL)) return;
-  // FL moves
-  if (swingLegForward(FL)) return;
-  // FL lowers
-  if (lowerLegComplete(FL)) return;
+  // FL: lift → swing forward → lower
+  if (liftLeg(FL)) return;
+  if (swingForward(FL)) return;
+  if (lowerLeg(FL)) return;
   
-  // BR and FL reset coxa
-  if (resetCoxaToNeutral(BR, FL)) return;
+  // === WEIGHT TRANSFER & RESET BR-FL ===
+  if (resetCoxa(FL, BR, BL, FR)) return;
 }
 
 
@@ -278,42 +301,28 @@ void walkBackward() {
 void turnLeft() {
   // === DIAGONAL PAIR 1: FL and BR ===
   
-  // FL lifts
-  if (liftLegStart(FL)) return;
-  // FL moves
-  if (swingLegForward(FL)) return;
-  // FL lowers
-  if (lowerLegComplete(FL)) return;
+  if (liftLeg(FL)) return;
+  if (swingForward(FL)) return;
+  if (lowerLeg(FL)) return;
   
-  // BR lifts
-  if (liftLegStart(BR)) return;
-  // BR moves
-  if (swingLegForward(BR)) return;
-  // BR lowers
-  if (lowerLegComplete(BR)) return;
+  if (liftLeg(BR)) return;
+  if (swingForward(BR)) return;
+  if (lowerLeg(BR)) return;
   
-  // FL and BR reset coxa
-  if (resetCoxaToNeutral(FL, BR)) return;
-  
+  // Weight transfer for turn
+ if (resetCoxa(FL, BR, BL, FR)) return;
   
   // === DIAGONAL PAIR 2: BL and FR ===
   
-  // BL lifts
-  if (liftLegStart(BL)) return;
-  // BL moves
-  if (swingLegForward(BL)) return;
-  // BL lowers
-  if (lowerLegComplete(BL)) return;
+  if (liftLeg(BL)) return;
+  if (swingForward(BL)) return;
+  if (lowerLeg(BL)) return;
   
-  // FR lifts
-  if (liftLegStart(FR)) return;
-  // FR moves
-  if (swingLegForward(FR)) return;
-  // FR lowers
-  if (lowerLegComplete(FR)) return;
+  if (liftLeg(FR)) return;
+  if (swingForward(FR)) return;
+  if (lowerLeg(FR)) return;
   
-  // BL and FR reset coxa
-  if (resetCoxaToNeutral(BL, FR)) return;
+  if (resetCoxa(BL, FR, FL, BR)) return;
 }
 
 
@@ -323,42 +332,30 @@ void turnLeft() {
 void turnRight() {
   // === DIAGONAL PAIR 1: FL and BR ===
   
-  // FL lifts
-  if (liftLegStart(FL)) return;
-  // FL moves
-  if (swingLegBackward(FL)) return;
-  // FL lowers
-  if (lowerLegComplete(FL)) return;
+  if (liftLeg(FL)) return;
+  if (swingBackward(FL)) return;
+  if (lowerLeg(FL)) return;
   
-  // BR lifts
-  if (liftLegStart(BR)) return;
-  // BR moves
-  if (swingLegBackward(BR)) return;
-  // BR lowers
-  if (lowerLegComplete(BR)) return;
+  if (liftLeg(BR)) return;
+  if (swingBackward(BR)) return;
+  if (lowerLeg(BR)) return;
   
-  // FL and BR reset coxa
-  if (resetCoxaToNeutral(FL, BR)) return;
+  // Weight transfer for turn
+  if (resetCoxa(FL, BR, BL, FR)) return;
   
   
   // === DIAGONAL PAIR 2: BL and FR ===
   
-  // BL lifts
-  if (liftLegStart(BL)) return;
-  // BL moves
-  if (swingLegBackward(BL)) return;
-  // BL lowers
-  if (lowerLegComplete(BL)) return;
+  if (liftLeg(BL)) return;
+  if (swingBackward(BL)) return;
+  if (lowerLeg(BL)) return;
   
-  // FR lifts
-  if (liftLegStart(FR)) return;
-  // FR moves
-  if (swingLegBackward(FR)) return;
-  // FR lowers
-  if (lowerLegComplete(FR)) return;
+  if (liftLeg(FR)) return;
+  if (swingBackward(FR)) return;
+  if (lowerLeg(FR)) return;
   
-  // BL and FR reset coxa
-  if (resetCoxaToNeutral(BL, FR)) return;
+  // Weight transfer for turn
+  if (resetCoxa(BL, FR, FL, BR)) return;
 }
 
 
@@ -388,7 +385,7 @@ void setup() {
   allMagnetsOn();
   currentCmd = 'V';
 
-  Serial.println("Configuration OK. Robot Ready with Overlapping Gait.");
+  Serial.println("Configuration OK. Robot Ready with Weight Transfer Gait.");
 }
 
 
@@ -417,11 +414,6 @@ void loop() {
       break;
 
     case 'V':
-      stand();
-      allMagnetsOn();
-      smartDelay(100);
-      break;
-
     case 'S':
       stand();
       allMagnetsOn();

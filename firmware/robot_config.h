@@ -43,10 +43,10 @@
 //
 // Each leg has one electromagnet for surface adhesion.
 //
-#define MAGNET_FR 2   // Front Right Leg Magnet
-#define MAGNET_FL 3   // Front Left  Leg Magnet
-#define MAGNET_BR 4   // Back  Right Leg Magnet
-#define MAGNET_BL 5   // Back  Left  Leg Magnet
+#define MAGNET_FR 4   // Front Right Leg Magnet
+#define MAGNET_FL 5   // Front Left  Leg Magnet
+#define MAGNET_BR 3   // Back  Right Leg Magnet
+#define MAGNET_BL 2   // Back  Left  Leg Magnet
 
 
 // ================= LEG STRUCT =================
@@ -85,6 +85,7 @@ extern int coxaDir[16];
 extern int liftAmount;
 extern int stepAmount;
 extern int stepDelay;
+extern int magDelay;
 
 
 // ================= CONFIGURATION VALIDATION =================
