@@ -6,7 +6,7 @@
  * Project  : Real-Time Bluetooth Controlled Quadruped Robot
  *            with Interruptible Gait Using PCA9685
  *
- * Firmware : 1.1.0
+ * Firmware : 3.0.0
  * Author   : Shahed Islam
  * Date     : January 2026
  * Contact  : shahed19is@gmail.com
@@ -32,8 +32,8 @@
 // These limits protect the servos from over-driving.
 // Every active PWM value must stay within this range.
 //
-#define SERVO_MIN 200
-#define SERVO_MAX 550
+#define SERVO_MIN 110
+#define SERVO_MAX 500
 
 
 // ================= ELECTROMAGNET PIN DEFINITIONS =================
