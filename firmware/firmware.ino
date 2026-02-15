@@ -3,21 +3,17 @@
  *            with Interruptible Gait Using PCA9685 and
  *            Electromagnetic Foot Adhesion
  *
- * Firmware : 2.0.0 - OVERLAPPING WEIGHT TRANSFER GAIT
+ * Firmware : 3.0.0 - SIMULTANEOUS MULTI-SERVO GAIT
  * Author   : Shahed Islam
- * Date     : January 2026
+ * Date     : February 2026
  * Contact  : shahed19is@gmail.com
  * GitHub   : https://github.com/shahed19is
  *
  * Description:
  * This firmware implements a real-time, interruptible gait controller
- * with OVERLAPPING weight transfer between diagonal pairs.
- *
- * GAIT PATTERN WITH WEIGHT TRANSFER:
- * While one diagonal pair resets its coxa, the next pair prepares
- * to move by releasing magnets. The current pair slightly lowers
- * to transfer weight, then returns to normal height. This creates
- * smooth, continuous motion with better stability.
+ * with SIMULTANEOUS servo movement for smooth, coordinated motion.
+ * Multiple servos move together during each leg operation,
+ * resulting in faster and more fluid walking patterns.
  *
  * All calibration constants, servo directions, mechanical mappings,
  * and electromagnet pin assignments are defined in:
@@ -143,48 +139,29 @@ void stand() {
 // INDIVIDUAL LEG MOTION PRIMITIVES
 // ===================================================
 
-// Lift a leg (demagnetize first)
-bool liftLeg(Leg leg) {
+// Move a leg: lift → swing (dir: 11=forward, 10=backward) → lower
+bool moveLeg(Leg leg, int dir) {
   if (checkNewCommand()) return true;
   
   magnetOff(getLegMagnetPin(leg));
   delay(magDelay);
   
+  // Lift Leg
   setServo(leg.femur, standPos[leg.femur] + femurDir[leg.femur] * liftAmount);
-  setServo(leg.tibia, standPos[leg.tibia] + tibiaDir[leg.tibia] * liftAmount);
+
+  // dir means direction. Forward = 11, Backward = 10
+  if(dir == 11) {
+    setServo(leg.coxa, standPos[leg.coxa] + coxaDir[leg.coxa] * stepAmount);
+  }
+  else if (dir == 10) {
+    setServo(leg.coxa, standPos[leg.coxa] - coxaDir[leg.coxa] * stepAmount);
+  }
   smartDelay(stepDelay);
   
-  return false;
-}
-
-// Swing leg forward
-bool swingForward(Leg leg) {
-  if (checkNewCommand()) return true;
-  
-  setServo(leg.coxa, standPos[leg.coxa] + coxaDir[leg.coxa] * stepAmount);
-  smartDelay(stepDelay);
-  
-  return false;
-}
-
-// Swing leg backward
-bool swingBackward(Leg leg) {
-  if (checkNewCommand()) return true;
-  
-  setServo(leg.coxa, standPos[leg.coxa] - coxaDir[leg.coxa] * stepAmount);
-  smartDelay(stepDelay);
-  
-  return false;
-}
-
-// Lower a leg (magnetize after)
-bool lowerLeg(Leg leg) {
-  if (checkNewCommand()) return true;
-  
+  // Lower Leg
   setServo(leg.femur, standPos[leg.femur]);
-  setServo(leg.tibia, standPos[leg.tibia]);
   smartDelay(stepDelay);
-  
+
   magnetOn(getLegMagnetPin(leg));
   delay(magDelay);
   
@@ -201,18 +178,11 @@ bool resetCoxa(Leg movLeg1, Leg movLeg2, Leg relLeg1, Leg relLeg2) {
   magnetOff(getLegMagnetPin(relLeg2));
   delay(magDelay);
   
-  // Lower current pair slightly to transfer weight
-  setServo(movLeg1.femur, standPos[movLeg1.femur] - femurDir[movLeg1.femur] * liftAmount * 2);
-  setServo(movLeg2.femur, standPos[movLeg2.femur] - femurDir[movLeg2.femur] * liftAmount * 2);
   
   // Reset current pair's coxa
   setServo(movLeg1.coxa, standPos[movLeg1.coxa]);
   setServo(movLeg2.coxa, standPos[movLeg2.coxa]);
   
-  // Raise current pair back to normal height
-  setServo(movLeg1.femur, standPos[movLeg1.femur]);
-  setServo(movLeg2.femur, standPos[movLeg2.femur]);
-  delay(magDelay);
   
   // Re-engage next pair's magnets
   magnetOn(getLegMagnetPin(relLeg1));
@@ -230,14 +200,10 @@ void walkForward() {
   // === DIAGONAL PAIR 1: FL and BR ===
   
   // FL: lift → swing backward → lower
-  if (liftLeg(FL)) return;
-  if (swingBackward(FL)) return;
-  if (lowerLeg(FL)) return;
+  if (moveLeg(FL, 10)) return;
   
   // BR: lift → swing forward → lower
-  if (liftLeg(BR)) return;
-  if (swingForward(BR)) return;
-  if (lowerLeg(BR)) return;
+  if (moveLeg(BR, 11)) return;
   
   // === WEIGHT TRANSFER & RESET FL-BR ===
   if (resetCoxa(FL, BR, BL, FR)) return;
@@ -245,14 +211,10 @@ void walkForward() {
   // === DIAGONAL PAIR 2: BL and FR ===
   
   // BL: lift → swing backward → lower
-  if (liftLeg(BL)) return;
-  if (swingBackward(BL)) return;
-  if (lowerLeg(BL)) return;
+  if (moveLeg(BL, 10)) return;
   
   // FR: lift → swing forward → lower
-  if (liftLeg(FR)) return;
-  if (swingForward(FR)) return;
-  if (lowerLeg(FR)) return;
+  if (moveLeg(FR, 11)) return;
   
   // === WEIGHT TRANSFER & RESET BL-FR ===
   if (resetCoxa(FR, BL, BR, FL)) return;
@@ -265,30 +227,22 @@ void walkForward() {
 void walkBackward() {
   // === DIAGONAL PAIR 1: FR and BL ===
   
-  // FR: lift → swing backward → lower
-  if (liftLeg(FR)) return;
-  if (swingBackward(FR)) return;
-  if (lowerLeg(FR)) return;
+  // FR: lift → swing forward → lower
+  if (moveLeg(FR, 11)) return;
   
-  // BL: lift → swing forward → lower
-  if (liftLeg(BL)) return;
-  if (swingForward(BL)) return;
-  if (lowerLeg(BL)) return;
+  // BL: lift → swing backward → lower
+  if (moveLeg(BL, 10)) return;
   
   // === WEIGHT TRANSFER & RESET FR-BL ===
   if (resetCoxa(FR, BL, BR, FL)) return;
   
   // === DIAGONAL PAIR 2: BR and FL ===
   
-  // BR: lift → swing backward → lower
-  if (liftLeg(BR)) return;
-  if (swingBackward(BR)) return;
-  if (lowerLeg(BR)) return;
+  // BR: lift → swing forward → lower
+  if (moveLeg(BR, 11)) return;
   
-  // FL: lift → swing forward → lower
-  if (liftLeg(FL)) return;
-  if (swingForward(FL)) return;
-  if (lowerLeg(FL)) return;
+  // FL: lift → swing backward → lower
+  if (moveLeg(FL, 10)) return;
   
   // === WEIGHT TRANSFER & RESET BR-FL ===
   if (resetCoxa(FL, BR, BL, FR)) return;
@@ -301,26 +255,18 @@ void walkBackward() {
 void turnLeft() {
   // === DIAGONAL PAIR 1: FL and BR ===
   
-  if (liftLeg(FL)) return;
-  if (swingForward(FL)) return;
-  if (lowerLeg(FL)) return;
+  if (moveLeg(FL, 11)) return;
   
-  if (liftLeg(BR)) return;
-  if (swingForward(BR)) return;
-  if (lowerLeg(BR)) return;
+  if (moveLeg(BR, 11)) return;
   
   // Weight transfer for turn
- if (resetCoxa(FL, BR, BL, FR)) return;
+  if (resetCoxa(FL, BR, BL, FR)) return;
   
   // === DIAGONAL PAIR 2: BL and FR ===
   
-  if (liftLeg(BL)) return;
-  if (swingForward(BL)) return;
-  if (lowerLeg(BL)) return;
+  if (moveLeg(BL, 11)) return;
   
-  if (liftLeg(FR)) return;
-  if (swingForward(FR)) return;
-  if (lowerLeg(FR)) return;
+  if (moveLeg(FR, 11)) return;
   
   if (resetCoxa(BL, FR, FL, BR)) return;
 }
@@ -332,13 +278,9 @@ void turnLeft() {
 void turnRight() {
   // === DIAGONAL PAIR 1: FL and BR ===
   
-  if (liftLeg(FL)) return;
-  if (swingBackward(FL)) return;
-  if (lowerLeg(FL)) return;
+  if (moveLeg(FL, 10)) return;
   
-  if (liftLeg(BR)) return;
-  if (swingBackward(BR)) return;
-  if (lowerLeg(BR)) return;
+  if (moveLeg(BR, 10)) return;
   
   // Weight transfer for turn
   if (resetCoxa(FL, BR, BL, FR)) return;
@@ -346,13 +288,9 @@ void turnRight() {
   
   // === DIAGONAL PAIR 2: BL and FR ===
   
-  if (liftLeg(BL)) return;
-  if (swingBackward(BL)) return;
-  if (lowerLeg(BL)) return;
+  if (moveLeg(BL, 10)) return;
   
-  if (liftLeg(FR)) return;
-  if (swingBackward(FR)) return;
-  if (lowerLeg(FR)) return;
+  if (moveLeg(FR, 10)) return;
   
   // Weight transfer for turn
   if (resetCoxa(BL, FR, FL, BR)) return;
@@ -385,7 +323,7 @@ void setup() {
   allMagnetsOn();
   currentCmd = 'V';
 
-  Serial.println("Configuration OK. Robot Ready with Weight Transfer Gait.");
+  Serial.println("Configuration OK. Robot Ready with Weight Transfer Gait V3.0.0");
 }
 
 

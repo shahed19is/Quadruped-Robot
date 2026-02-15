@@ -3,7 +3,7 @@
  * Project  : Real-Time Bluetooth Controlled Quadruped Robot
  *            with Interruptible Gait Using PCA9685
  *
- * Firmware : 1.1.0
+ * Firmware : 3.0.0
  * Author   : Shahed Islam
  * Date     : January 2026
  * Contact  : shahed19is@gmail.com
@@ -19,7 +19,7 @@
  * or mechanical structures. Always keep all active PWM values
  * within:
  *
- *        SERVO_MIN (200)  ≤  PWM  ≤  SERVO_MAX (550)
+ *        SERVO_MIN (110)  ≤  PWM  ≤  SERVO_MAX (500)
  *
  * A value of 0 means the PCA9685 channel is unused.
  * Any invalid value will cause the firmware to halt at startup.
@@ -39,11 +39,27 @@
  *   - Value = 0  → Channel unused
  */
 int standPos[16] = {
-  350, 350, 300, 0,
-  450, 350, 400, 0,
-  375, 430, 250, 0,
-  550, 350, 350, 0
+  300,  // Ch0  BR Tibia
+  200,  // Ch1  BR Femur
+  250,  // Ch2  BR Coxa
+  0,    // Ch3  Unused
+
+  300,  // Ch4  BL Tibia
+  200,  // Ch5  BL Femur
+  350,  // Ch6  BL Coxa
+  0,    // Ch7  Unused
+
+  350,  // Ch8  FR Coxa
+  400,  // Ch9  FR Femur
+  300,  // Ch10 FR Tibia
+  0,    // Ch11 Unused
+
+  250,  // Ch12 FL Coxa
+  400,  // Ch13 FL Femur
+  300,  // Ch14 FL Tibia
+  0     // Ch15 Unused
 };
+
 
 
 /* ================= LEG DEFINITIONS =================
@@ -55,10 +71,10 @@ int standPos[16] = {
  * Format:
  *   { Coxa_Channel, Femur_Channel, Tibia_Channel }
  */
-Leg FL = {4, 5, 6};     // Front Left Leg
-Leg FR = {2, 1, 0};     // Front Right Leg
-Leg BL = {12, 13, 14};  // Back Left Leg
-Leg BR = {10, 9, 8};    // Back Right Leg
+Leg BL = {6, 5, 4};     // Back Left Leg
+Leg BR = {2, 1, 0};     // Back Right Leg
+Leg FL = {12, 13, 14};  // Front Left Leg
+Leg FR = {8, 9, 10};    // Front Right Leg
 
 
 /* ================= SERVO DIRECTION POLARITY =================
@@ -73,17 +89,17 @@ Leg BR = {10, 9, 8};    // Back Right Leg
 
 // Femur → Vertical lifting joint (middle joint)
 int femurDir[16] = {
-  0, -1, 0, 0, 0, +1, 0, 0, 0, +1, 0, 0, 0, -1, 0, 0
+  0, +1, 0, 0, 0, +1, 0, 0, 0, -1, 0, 0, 0, -1, 0, 0
 };
 
 // Tibia → Foot joint (lower joint)
 int tibiaDir[16] = {
-  +1, 0, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, 0, +1, 0
+  -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, +1, 0, 0, 0, +1, 0
 };
 
 // Coxa → Arm joint (horizontal rotation)
 int coxaDir[16] = {
-  0, 0, +1, 0, +1, 0, 0, 0, 0, 0, +1, 0, +1, 0, 0, 0
+  0, 0, +1, 0, 0, 0, +1, 0, +1, 0, 0, 0, +1, 0, 0, 0
 };
 
 
@@ -95,9 +111,9 @@ int coxaDir[16] = {
  * These values define speed, smoothness, and stability.
  * Tune carefully to avoid mechanical stress.
  */
-int liftAmount = 150;
+int liftAmount = 200;
 int stepAmount = 150;
-int stepDelay  = 1000;
+int stepDelay  = 250;
 int magDelay = 250;
 
 
